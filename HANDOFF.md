@@ -21,14 +21,12 @@ Python 3.11 · Flask · SQLite (stdlib sqlite3) · gunicorn · ванильны�
 - ivan, maria, oleg, dmitry / driver123 (водители, рейсы ORD-1042…1045)
 
 ## Текущая проблема
-Пуш на GitHub не выполнен: выданные fine-grained токены имеют Contents: **Read**.
-Лечение: github.com/settings/tokens?type=beta → открыть токен → Edit →
-Permissions → Repository permissions → **Contents → Read and write** → Save.
-Либо создать классический токен (Tokens classic) с галочкой **repo** — проще.
+Нет — пуш на GitHub выполнен 2026-09-30 (ветка main → SevaGd1978/transcontrol).
+Локальный smoke-тест пройден: логин, рейсы, чат, healthz — работают.
 
 ## Дальнейшие шаги
-1. Запушить проект (git push origin main из папки проекта)
-2. Развернуть на Amvera Cloud: Создать → Приложение → Python → подключить репозиторий
+1. Развернуть на Amvera Cloud: Создать → Приложение → Python → подключить репозиторий
+   https://github.com/SevaGd1978/transcontrol
    (amvera.yml уже в корне; данные в /data; задать SECRET_KEY)
-3. Опционально: заменить поллинг на WebSocket (Flask-SocketIO), добавить PostgreSQL,
+2. Опционально: заменить поллинг на WebSocket (Flask-SocketIO), добавить PostgreSQL,
    уведомления по email/Telegram, загрузку фото с камеры телефона для водителей
