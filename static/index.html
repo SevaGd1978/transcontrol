@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TransLog — документы и чат</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M2.9 5.6H13.3V15.1H2.9zM13.3 8.8H16.9L20.1 12V15.1H13.3' fill='none' stroke='%23222' stroke-width='1.8'/></svg>">
+</head>
+<body>
+
+  <div id="login-view" class="login-wrap hidden">
+    <div class="login-card">
+      <div class="login-brand">
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none"><path d="M2.9 5.6H13.3V15.1H2.9V5.6Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M13.3 8.8H16.9L20.1 12V15.1H13.3" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="6.9" cy="17.1" r="1.7" stroke="currentColor" stroke-width="1.8"/><circle cx="16.8" cy="17.1" r="1.7" stroke="currentColor" stroke-width="1.8"/><path d="M2.6 17.1H5.2M8.6 17.1H15.1M18.5 17.1H21.4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        <div>
+          <div class="login-title">TransLog</div>
+          <div class="login-sub">обмен документами и чат</div>
+        </div>
+      </div>
+      <label>Логин</label>
+      <input id="li-login" autocomplete="username" placeholder="ivan">
+      <label>Пароль</label>
+      <input id="li-pass" type="password" autocomplete="current-password" placeholder="driver123">
+      <div id="li-error" class="login-error"></div>
+      <button class="btn-p" id="li-btn" onclick="doLogin()">Войти</button>
+      <div class="login-hint">
+        Демо-учётки:<br>
+        диспетчер — <code>dispatcher / dispatcher123</code><br>
+        водители — <code>ivan, maria, oleg, dmitry / driver123</code>
+      </div>
+    </div>
+  </div>
+
+  <div id="app-view" class="hidden">
+    <header class="topbar">
+      <div class="brand">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M2.9 5.6H13.3V15.1H2.9V5.6Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M13.3 8.8H16.9L20.1 12V15.1H13.3" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="6.9" cy="17.1" r="1.7" stroke="currentColor" stroke-width="1.8"/><circle cx="16.8" cy="17.1" r="1.7" stroke="currentColor" stroke-width="1.8"/><path d="M2.6 17.1H5.2M8.6 17.1H15.1M18.5 17.1H21.4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        <span>TransLog</span>
+      </div>
+      <div class="st" id="stats"></div>
+      <div class="me" id="me-box"></div>
+      <button class="ibtn" onclick="doLogout()" title="Выйти">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M10 4H6C4.9 4 4 4.9 4 6V18C4 19.1 4.9 20 6 20H10M16 8L20 12L16 16M20 12H9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Выйти
+      </button>
+    </header>
+    <div class="layout">
+      <aside id="side"></aside>
+      <main id="center"></main>
+      <section id="chatbox"></section>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
