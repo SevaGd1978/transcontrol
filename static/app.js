@@ -181,7 +181,7 @@ function docRow(d) {
   }
   return '<div class="doc"><div class="dic">' + (d.status === 'approved' ? I.docok : I.doc) + '</div>' +
     '<div class="dmain"><div class="dname">' + esc(d.name) + '<span class="chip c-gray">' + esc(d.type) + '</span></div>' +
-    '<div class="dmeta">' + d.order_id + ' · ' + esc(o ? o.driver : d.uploader) + ' · ' + d.size + ' · ' + d.time + (d.comment ? ' · ' + esc(d.comment) : '') + '</div>' + act + '</div>' +
+    '<div class="dmeta">' + d.order_id + ' · ' + esc(o ? o.driver : d.uploader) + ' · ' + d.size + ' · ' + d.time + (d.comment ? ' · ' + esc(d.comment) : '') + megaLink(d.mega_url) + '</div>' + act + '</div>' +
     '<div class="dright"><span class="chip ' + st[1] + '">' + st[0] + '</span>' +
     '<a class="ibtn" href="/api/docs/' + d.id + '/download">' + I.dl + ' Скачать</a></div></div>';
 }
@@ -200,6 +200,16 @@ function renderCenter() {
       '<div class="uprow"><button class="btn-p" onclick="saveTTSettings()">Сохранить</button>' +
       '<button class="ibtn" onclick="testTT()">Проверить подключение</button></div>' +
       '<div id="tt-status"></div></div>';
+    html += '<div class="panel"><div class="panel-t">Облачное хранилище MEGA</div>' +
+      '<p class="sett-hint">Документы и ZIP-архивы дублируются в MEGA и получают публичные ссылки. ' +
+      'Двухфакторная аутентификация MEGA должна быть выключена.</p>' +
+      '<div class="sett-grid">' +
+      '<label>MEGA email</label><input id="mega-email" placeholder="you@example.com">' +
+      '<label>MEGA пароль</label><input id="mega-pass" type="password" placeholder="••••••••" autocomplete="off">' +
+      '</div>' +
+      '<div class="uprow"><button class="btn-p" onclick="saveMega()">Сохранить</button>' +
+      '<button class="ibtn" onclick="testMega()">Проверить вход</button></div>' +
+      '<div id="mega-status"></div></div>';
   }
   if (ME.role === 'driver') {
     html += '<div class="panel"><div class="panel-t">' + I.up + ' Отправить документ</div>' +
@@ -219,7 +229,7 @@ function renderCenter() {
   html += '<div class="panel"><div class="panel-t">' + I.doc + ' Архивы документов (ZIP)</div><div id="exp-box"></div></div>';
   $('center').innerHTML = html;
   renderExports();
-  if (settingsOpen && ME.role === 'dispatcher') loadTTSettings();
+  if (settingsOpen && ME.role === 'dispatcher') { loadTTSettings(); loadMegaSettings(); }
 }
 
 function renderExports() {
@@ -236,7 +246,7 @@ function renderExports() {
   html += list.length ? list.map(e =>
     '<div class="doc"><div class="dic">' + I.doc + '</div>' +
     '<div class="dmain"><div class="dname">' + esc(e.filename) + '</div>' +
-    '<div class="dmeta">' + e.order_id + ' · заявка ' + esc(e.request_no || '—') + ' · файлов: ' + e.doc_count + ' · ' + e.size + ' · ' + e.time + ' · ' + esc(e.created_by) + '</div></div>' +
+    '<div class="dmeta">' + e.order_id + ' · заявка ' + esc(e.request_no || '—') + ' · файлов: ' + e.doc_count + ' · ' + e.size + ' · ' + e.time + ' · ' + esc(e.created_by) + megaLink(e.mega_url) + '</div></div>' +
     '<div class="dright"><a class="ibtn" href="/api/exports/' + e.id + '/download">' + I.dl + ' Скачать</a></div></div>'
   ).join('') : '<div class="empty">Архивов пока нет</div>';
   box.innerHTML = html;
@@ -370,6 +380,38 @@ async function testTT() {
     box.innerHTML = '<div class="sett-err">' + esc(e.message) + '</div>';
   }
 }
+
+/* ---------- MEGA ---------- */
+async function loadMegaSettings() {
+  try {
+    const s = await api('/api/settings/mega');
+    $('mega-email').value = s.email || '';
+    $('mega-pass').placeholder = s.has_password ? 'сохранён (введите новый для замены)' : '••••••••';
+  } catch (e) { /* ignore */ }
+}
+async function saveMega() {
+  const box = $('mega-status');
+  try {
+    const r = await api('/api/settings/mega', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({email: $('mega-email').value.trim(), password: $('mega-pass').value})});
+    box.innerHTML = '<div class="sett-ok">Сохранено. MEGA ' + (r.configured ? 'настроено' : 'заполнено не полностью') + '.</div>';
+    $('mega-pass').value = '';
+    loadMegaSettings();
+  } catch (e) {
+    box.innerHTML = '<div class="sett-err">' + esc(e.message) + '</div>';
+  }
+}
+async function testMega() {
+  const box = $('mega-status');
+  box.innerHTML = '<div class="sett-hint">Вхожу в MEGA…</div>';
+  try {
+    const r = await api('/api/mega/test', {method: 'POST'});
+    box.innerHTML = '<div class="sett-ok">' + esc(r.detail || 'Вход выполнен') + '</div>';
+  } catch (e) {
+    box.innerHTML = '<div class="sett-err">' + esc(e.message) + '</div>';
+  }
+}
+const megaLink = (url) => url ? ' · <a href="' + esc(url) + '" target="_blank" rel="noopener">MEGA</a>' : '';
 async function pushTT() {
   if (!active) return;
   const o = orders.find(x => x.id === active);

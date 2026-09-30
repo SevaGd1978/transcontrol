@@ -53,7 +53,8 @@ CREATE TABLE IF NOT EXISTS exports (
   size INTEGER NOT NULL DEFAULT 0,
   doc_count INTEGER NOT NULL DEFAULT 0,
   created_by TEXT NOT NULL,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  mega_url TEXT DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS docs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -65,7 +66,8 @@ CREATE TABLE IF NOT EXISTS docs (
   size INTEGER NOT NULL DEFAULT 0,
   comment TEXT DEFAULT '',
   status TEXT NOT NULL DEFAULT 'review' CHECK(status IN ('review','approved','rejected')),
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  mega_url TEXT DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS msgs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -158,6 +160,12 @@ def migrate(con):
         con.execute("ALTER TABLE orders ADD COLUMN request_no TEXT DEFAULT ''")
     if "tt_order_id" not in cols:
         con.execute("ALTER TABLE orders ADD COLUMN tt_order_id TEXT DEFAULT ''")
+    dcols = [r[1] for r in con.execute("PRAGMA table_info(docs)").fetchall()]
+    if "mega_url" not in dcols:
+        con.execute("ALTER TABLE docs ADD COLUMN mega_url TEXT DEFAULT ''")
+    ecols = [r[1] for r in con.execute("PRAGMA table_info(exports)").fetchall()]
+    if "mega_url" not in ecols:
+        con.execute("ALTER TABLE exports ADD COLUMN mega_url TEXT DEFAULT ''")
     for row in con.execute("SELECT id FROM orders WHERE request_no='' OR request_no IS NULL").fetchall():
         m = re.search(r"(\d+)", row["id"])
         num = int(m.group(1)) - 264 if m else 600
@@ -212,6 +220,7 @@ def doc_json(d):
         "comment": d["comment"],
         "time": fmt_time(d["created_at"]),
         "uploader": d["uploader"],
+        "mega_url": d["mega_url"] if "mega_url" in d.keys() else "",
     }
 
 
@@ -343,12 +352,14 @@ def upload_doc():
         return jsonify({"error": "Выберите файл"}), 400
     orig = f.filename
     stored = f"{int(datetime.now().timestamp() * 1000)}_{secure_filename(orig)}"
-    f.save(os.path.join(UPLOAD_DIR, stored))
+    local_path = os.path.join(UPLOAD_DIR, stored)
+    f.save(local_path)
+    mega_url = mega_upload(local_path) if mega_configured() else ""
     con = get_db()
     cur = con.execute(
-        "INSERT INTO docs(order_id,uploader,type,orig_name,stored_name,size,comment,status,created_at)"
-        " VALUES(?,?,?,?,?,?,?, 'review', ?)",
-        (order_id, u["name"], dtype, orig, stored, f.content_length or 0, comment, now_str()),
+        "INSERT INTO docs(order_id,uploader,type,orig_name,stored_name,size,comment,status,created_at,mega_url)"
+        " VALUES(?,?,?,?,?,?,?, 'review', ?, ?)",
+        (order_id, u["name"], dtype, orig, stored, f.content_length or 0, comment, now_str(), mega_url),
     )
     add_sys_msg(con, order_id, f"Документ {orig} отправлен на проверку")
     con.commit()
@@ -433,6 +444,7 @@ def export_json(e):
         "doc_count": e["doc_count"],
         "created_by": e["created_by"],
         "time": fmt_time(e["created_at"]),
+        "mega_url": e["mega_url"] if "mega_url" in e.keys() else "",
     }
 
 
@@ -470,10 +482,11 @@ def export_order(order_id):
         con.close()
         return jsonify({"error": "Файлы документов не найдены на сервере"}), 400
     size = os.path.getsize(zip_path)
+    mega_url = mega_upload(zip_path) if mega_configured() else ""
     cur = con.execute(
-        "INSERT INTO exports(order_id,request_no,filename,stored_name,size,doc_count,created_by,created_at)"
-        " VALUES(?,?,?,?,?,?,?,?)",
-        (order_id, o["request_no"], zip_name, stored, size, len(used), u["name"], now_str()),
+        "INSERT INTO exports(order_id,request_no,filename,stored_name,size,doc_count,created_by,created_at,mega_url)"
+        " VALUES(?,?,?,?,?,?,?,?,?)",
+        (order_id, o["request_no"], zip_name, stored, size, len(used), u["name"], now_str(), mega_url),
     )
     add_sys_msg(con, order_id, f"Сформирован архив документов {zip_name} ({len(used)} файлов)")
     con.commit()
@@ -506,6 +519,98 @@ def export_download(export_id):
         abort(404)
     require_order_access(u, e["order_id"])
     return send_from_directory(EXPORTS_DIR, e["stored_name"], as_attachment=True, download_name=e["filename"])
+
+
+# ---------- MEGA storage ----------
+
+_MEGA_CLIENT = None
+_MEGA_BROKEN = False
+
+
+def mega_reset():
+    global _MEGA_CLIENT, _MEGA_BROKEN
+    _MEGA_CLIENT = None
+    _MEGA_BROKEN = False
+
+
+def mega_configured():
+    return bool(get_setting("mega_email") and get_setting("mega_password"))
+
+
+def mega_client():
+    global _MEGA_CLIENT, _MEGA_BROKEN
+    if _MEGA_CLIENT is not None:
+        return _MEGA_CLIENT
+    if _MEGA_BROKEN or not mega_configured():
+        return None
+    try:
+        from mega import Mega
+        _MEGA_CLIENT = Mega().login(get_setting("mega_email"), get_setting("mega_password"))
+        return _MEGA_CLIENT
+    except Exception:
+        _MEGA_BROKEN = True
+        return None
+
+
+def mega_upload(path):
+    """Загружает файл в MEGA, возвращает публичную ссылку или ''."""
+    m = mega_client()
+    if not m:
+        return ""
+    try:
+        node = m.upload(path)
+        return m.get_upload_link(node) or ""
+    except Exception:
+        return ""
+
+
+@app.get("/api/settings/mega")
+def mega_settings_get():
+    u = require_auth()
+    if u["role"] != "dispatcher":
+        abort(403)
+    return jsonify({
+        "email": get_setting("mega_email"),
+        "has_password": bool(get_setting("mega_password")),
+    })
+
+
+@app.post("/api/settings/mega")
+def mega_settings_save():
+    u = require_auth()
+    if u["role"] != "dispatcher":
+        abort(403)
+    data = request.get_json(force=True, silent=True) or {}
+    email = (data.get("email") or "").strip()
+    password = data.get("password") or ""
+    if email:
+        if "@" not in email:
+            return jsonify({"error": "Некорректный email"}), 400
+        set_setting("mega_email", email)
+    if password:
+        set_setting("mega_password", password)
+    mega_reset()
+    return jsonify({"ok": True, "configured": mega_configured()})
+
+
+@app.post("/api/mega/test")
+def mega_test():
+    u = require_auth()
+    if u["role"] != "dispatcher":
+        abort(403)
+    if not mega_configured():
+        return jsonify({"error": "MEGA не настроен: укажите email и пароль"}), 400
+    mega_reset()
+    m = mega_client()
+    if not m:
+        return jsonify({"ok": False, "error": "Не удалось войти в MEGA — проверьте email/пароль (2FA должна быть выключена)"}), 502
+    try:
+        quota = m.get_quota() or 0
+        used = m.get_storage_space().get("used", 0) if hasattr(m, "get_storage_space") else 0
+        gb = quota / 1024 / 1024 if quota else 0
+        return jsonify({"ok": True, "detail": f"Вход выполнен. Хранилище: {gb:.0f} ГБ."})
+    except Exception as e:
+        return jsonify({"ok": True, "detail": "Вход выполнен."})
 
 
 # ---------- TransTrade API (tt-ok.ru) ----------
