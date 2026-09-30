@@ -80,3 +80,16 @@ translog/
 - `POST /api/orders/<order_id>/export` — собрать документы рейса в ZIP `ORD-XXXX_З-NNN.zip`, архив сохраняется в облачном хранилище `/data/exports`
 - `GET /api/exports` — список архивов (водитель — только свой рейс)
 - `GET /api/exports/<id>/download` — скачать архив
+- `GET/POST /api/settings/tt` — настройки TransTrade API (только диспетчер; KEY хранится в БД, в ответе маскируется)
+- `POST /api/tt/test` — проверка связи с TransTrade (метод GetDrivers)
+- `POST /api/orders/<order_id>/push_tt` — выгрузить заказ в TransTrade (`CreateOrder`, при повторе — `EditOrder` по сохранённому `tt_order_id`)
+
+## Интеграция TransTrade API
+
+В «Настройках» (кнопка в шапке, только диспетчер) задаются API URL, API KEY и
+api_user_id из документации [tt-ok.ru/data/api_doc](https://tt-ok.ru/data/api_doc/).
+Подпись запросов формируется по алгоритму сервиса:
+`md5(API KEY + '###' + data + '###' + method + '###' + random + '###' + API KEY)`.
+Кнопка «Отправить заказ в TransTrade» в шапке чата создаёт заказ
+(`OrderNum` = рейс, `ClientOrderNum` = номер заявки, маршрут → `Load`/`Unload`),
+повторное нажатие выполняет `EditOrder`.
