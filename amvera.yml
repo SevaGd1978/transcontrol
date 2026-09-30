@@ -1,12 +1,14 @@
-# Конфигурация сборки и запуска для Amvera Cloud
+---
 meta:
   environment: python
   toolchain:
     name: pip
-    version: "3.11"
-
+    version: 3.11
+build: {}
 run:
   command: gunicorn --bind 0.0.0.0:5000 app:app
   containerPort: 5000
-  # SQLite-база и загруженные файлы хранятся в постоянном хранилище /data
   persistenceMount: /data
+  ports:
+  - port: 5000
+    protocol: http
