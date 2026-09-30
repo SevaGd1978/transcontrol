@@ -1,5 +1,7 @@
 import os
+import re
 import sqlite3
+import zipfile
 from datetime import datetime
 
 from flask import Flask, jsonify, request, session, send_from_directory, abort
@@ -11,7 +13,9 @@ ON_AMVERA = "AMVERA" in os.environ
 DATA_DIR = "/data" if ON_AMVERA else BASE_DIR
 DB_PATH = os.path.join(DATA_DIR, "translog.db")
 UPLOAD_DIR = os.path.join(DATA_DIR, "uploads")
+EXPORTS_DIR = os.path.join(DATA_DIR, "exports")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(EXPORTS_DIR, exist_ok=True)
 
 app = Flask(__name__, static_folder="static", static_url_path="/static")
 app.secret_key = os.environ.get("SECRET_KEY", "change-me-in-production")
@@ -32,7 +36,19 @@ CREATE TABLE IF NOT EXISTS orders (
   route TEXT NOT NULL,
   cargo TEXT NOT NULL,
   plate TEXT NOT NULL,
-  status TEXT NOT NULL
+  status TEXT NOT NULL,
+  request_no TEXT DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS exports (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  order_id TEXT NOT NULL,
+  request_no TEXT DEFAULT '',
+  filename TEXT NOT NULL,
+  stored_name TEXT NOT NULL,
+  size INTEGER NOT NULL DEFAULT 0,
+  doc_count INTEGER NOT NULL DEFAULT 0,
+  created_by TEXT NOT NULL,
+  created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS docs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -102,14 +118,14 @@ def seed(con):
             (login, generate_password_hash(pw), name, role, oid),
         )
     orders = [
-        ("ORD-1042", "Иван Петров", "Москва → Казань", "Стройматериалы, 20 т", "А123БВ77", "enroute"),
-        ("ORD-1043", "Мария Сидорова", "Санкт-Петербург → Новосибирск", "Бытовая техника, 12 т", "К456МН98", "loading"),
-        ("ORD-1044", "Олег Козлов", "Казань → Самара", "Продукты, 8 т", "М789ОР116", "problem"),
-        ("ORD-1045", "Дмитрий Волков", "Москва → Нижний Новгород", "Мебель, 6 т", "Р012СТ77", "done"),
+        ("ORD-1042", "Иван Петров", "Москва → Казань", "Стройматериалы, 20 т", "А123БВ77", "enroute", "З-778"),
+        ("ORD-1043", "Мария Сидорова", "Санкт-Петербург → Новосибирск", "Бытовая техника, 12 т", "К456МН98", "loading", "З-779"),
+        ("ORD-1044", "Олег Козлов", "Казань → Самара", "Продукты, 8 т", "М789ОР116", "problem", "З-780"),
+        ("ORD-1045", "Дмитрий Волков", "Москва → Нижний Новгород", "Мебель, 6 т", "Р012СТ77", "done", "З-781"),
     ]
     for o in orders:
         con.execute(
-            "INSERT INTO orders(id,driver_name,route,cargo,plate,status) VALUES(?,?,?,?,?,?)", o
+            "INSERT INTO orders(id,driver_name,route,cargo,plate,status,request_no) VALUES(?,?,?,?,?,?,?)", o
         )
     demo = [
         ("ORD-1042", "dispatcher", "Добрый день, Иван! Пришлите CMR сразу после разгрузки.", "2026-09-30 10:01:00"),
@@ -127,11 +143,23 @@ def seed(con):
     con.commit()
 
 
+def migrate(con):
+    cols = [r[1] for r in con.execute("PRAGMA table_info(orders)").fetchall()]
+    if "request_no" not in cols:
+        con.execute("ALTER TABLE orders ADD COLUMN request_no TEXT DEFAULT ''")
+    for row in con.execute("SELECT id FROM orders WHERE request_no='' OR request_no IS NULL").fetchall():
+        m = re.search(r"(\d+)", row["id"])
+        num = int(m.group(1)) - 264 if m else 600
+        con.execute("UPDATE orders SET request_no=? WHERE id=?", (f"З-{num}", row["id"]))
+
+
 def init_db():
     con = get_db()
     con.executescript(SCHEMA)
+    migrate(con)
     if con.execute("SELECT COUNT(*) c FROM users").fetchone()["c"] == 0:
         seed(con)
+    con.commit()
     con.close()
 
 
@@ -254,6 +282,7 @@ def orders():
         result.append({
             "id": o["id"], "driver": o["driver_name"], "route": o["route"],
             "cargo": o["cargo"], "plate": o["plate"], "status": o["status"],
+            "request_no": o["request_no"],
             "review_count": review, "unread": unread,
         })
     con.close()
@@ -374,6 +403,98 @@ def download(doc_id):
         abort(404)
     require_order_access(u, d["order_id"])
     return send_from_directory(UPLOAD_DIR, d["stored_name"], as_attachment=True, download_name=d["orig_name"])
+
+
+# ---------- exports (ZIP-архивы по рейсу) ----------
+
+def safe_zip_name(s):
+    s = re.sub(r"[\\/:*?\"<>|\s]+", "_", str(s))
+    return s.strip("_") or "archive"
+
+
+def export_json(e):
+    return {
+        "id": e["id"],
+        "order_id": e["order_id"],
+        "request_no": e["request_no"],
+        "filename": e["filename"],
+        "size": fmt_size(e["size"]),
+        "doc_count": e["doc_count"],
+        "created_by": e["created_by"],
+        "time": fmt_time(e["created_at"]),
+    }
+
+
+@app.post("/api/orders/<order_id>/export")
+def export_order(order_id):
+    u = require_auth()
+    require_order_access(u, order_id)
+    con = get_db()
+    o = con.execute("SELECT * FROM orders WHERE id=?", (order_id,)).fetchone()
+    if not o:
+        con.close()
+        abort(404)
+    rows = con.execute(
+        "SELECT * FROM docs WHERE order_id=? ORDER BY id", (order_id,)
+    ).fetchall()
+    if not rows:
+        con.close()
+        return jsonify({"error": "По этому рейсу пока нет документов"}), 400
+    zip_name = safe_zip_name(f"{order_id}_{o['request_no']}") + ".zip"
+    stored = f"{int(datetime.now().timestamp() * 1000)}_{zip_name}"
+    zip_path = os.path.join(EXPORTS_DIR, stored)
+    used = set()
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
+        for d in rows:
+            src = os.path.join(UPLOAD_DIR, d["stored_name"])
+            if not os.path.exists(src):
+                continue
+            arc = d["orig_name"]
+            if arc in used:
+                arc = f"{d['id']}_{arc}"
+            used.add(arc)
+            z.write(src, arc)
+    if not used:
+        os.remove(zip_path)
+        con.close()
+        return jsonify({"error": "Файлы документов не найдены на сервере"}), 400
+    size = os.path.getsize(zip_path)
+    cur = con.execute(
+        "INSERT INTO exports(order_id,request_no,filename,stored_name,size,doc_count,created_by,created_at)"
+        " VALUES(?,?,?,?,?,?,?,?)",
+        (order_id, o["request_no"], zip_name, stored, size, len(used), u["name"], now_str()),
+    )
+    add_sys_msg(con, order_id, f"Сформирован архив документов {zip_name} ({len(used)} файлов)")
+    con.commit()
+    e = con.execute("SELECT * FROM exports WHERE id=?", (cur.lastrowid,)).fetchone()
+    con.close()
+    return jsonify(export_json(e)), 201
+
+
+@app.get("/api/exports")
+def exports_list():
+    u = require_auth()
+    con = get_db()
+    if u["role"] == "driver":
+        rows = con.execute(
+            "SELECT * FROM exports WHERE order_id=? ORDER BY id DESC", (u["order_id"],)
+        ).fetchall()
+    else:
+        rows = con.execute("SELECT * FROM exports ORDER BY id DESC").fetchall()
+    con.close()
+    return jsonify([export_json(e) for e in rows])
+
+
+@app.get("/api/exports/<int:export_id>/download")
+def export_download(export_id):
+    u = require_auth()
+    con = get_db()
+    e = con.execute("SELECT * FROM exports WHERE id=?", (export_id,)).fetchone()
+    con.close()
+    if not e:
+        abort(404)
+    require_order_access(u, e["order_id"])
+    return send_from_directory(EXPORTS_DIR, e["stored_name"], as_attachment=True, download_name=e["filename"])
 
 
 # ---------- chat ----------

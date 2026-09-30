@@ -22,6 +22,7 @@ const AVC = ['#2563eb','#dc2626','#16a34a','#7c3aed'];
 let ME = null;
 let orders = [];
 let docs = [];
+let exports_ = [];
 let active = null;
 let filter = 'all';
 let q = '';
@@ -86,7 +87,11 @@ async function refreshAll() {
   if (ME.role === 'driver') active = ME.order_id;
   else if (!orders.find(o => o.id === active)) active = orders[0] && orders[0].id;
   renderStats(); renderSide();
-  await refreshDocs(); await refreshChat(true);
+  await refreshDocs(); await refreshChat(true); await refreshExports();
+}
+async function refreshExports() {
+  exports_ = await api('/api/exports').catch(() => []);
+  renderExports();
 }
 async function refreshDocs() {
   const p = new URLSearchParams();
@@ -144,7 +149,7 @@ function orderCard(o, clickable) {
   const badge = (o.review_count ? '<span class="chip c-amber">' + I.warn + ' ' + o.review_count + '</span>' : '') +
                 (o.unread ? '<span class="chip c-blue">' + o.unread + ' новых</span>' : '');
   return '<button class="ord ' + (active === o.id ? 'on' : '') + '" ' + (clickable ? 'onclick="selectOrder(\'' + o.id + '\')"' : '') + ' style="cursor:' + (clickable ? 'pointer' : 'default') + '">' +
-    '<div class="o-top"><span class="oid">' + o.id + '</span><span class="chip ' + st[1] + '">' + st[0] + '</span></div>' +
+    '<div class="o-top"><span class="oid">' + o.id + '</span><span class="chip c-gray">' + esc(o.request_no || '') + '</span><span class="chip ' + st[1] + '">' + st[0] + '</span></div>' +
     '<div class="oname">' + esc(o.driver) + '</div>' +
     '<div class="oroute">' + I.pin + esc(o.route) + '</div>' +
     '<div class="ometa">' + esc(o.cargo) + ' · ' + esc(o.plate) + '</div>' +
@@ -196,7 +201,29 @@ function renderCenter() {
   }
   html += docs.length ? docs.map(docRow).join('') : '<div class="empty">Документов не найдено</div>';
   html += '</div>';
+  html += '<div class="panel"><div class="panel-t">' + I.doc + ' Архивы документов (ZIP)</div><div id="exp-box"></div></div>';
   $('center').innerHTML = html;
+  renderExports();
+}
+
+function renderExports() {
+  const box = $('exp-box');
+  if (!box) return;
+  const o = orders.find(x => x.id === active);
+  let html = '';
+  if (o) {
+    const n = docs.filter(d => d.order_id === o.id).length;
+    html += '<div class="uprow" style="margin-bottom:8px"><button class="ibtn" onclick="doExport()">' + I.dl +
+      ' Сформировать ZIP по рейсу ' + esc(o.id) + ' (заявка ' + esc(o.request_no || '—') + ', документов: ' + n + ')</button></div>';
+  }
+  const list = ME.role === 'driver' ? exports_ : (active ? exports_.filter(e => e.order_id === active) : exports_);
+  html += list.length ? list.map(e =>
+    '<div class="doc"><div class="dic">' + I.doc + '</div>' +
+    '<div class="dmain"><div class="dname">' + esc(e.filename) + '</div>' +
+    '<div class="dmeta">' + e.order_id + ' · заявка ' + esc(e.request_no || '—') + ' · файлов: ' + e.doc_count + ' · ' + e.size + ' · ' + e.time + ' · ' + esc(e.created_by) + '</div></div>' +
+    '<div class="dright"><a class="ibtn" href="/api/exports/' + e.id + '/download">' + I.dl + ' Скачать</a></div></div>'
+  ).join('') : '<div class="empty">Архивов пока нет</div>';
+  box.innerHTML = html;
 }
 
 function msgHtml(m) {
@@ -223,7 +250,7 @@ function renderChat() {
   const col = ME.role === 'driver' ? 'var(--text2)' : AVC[orders.indexOf(o) % AVC.length];
   $('chatbox').innerHTML = '<div class="chat"><div class="ch-head">' +
     '<div class="av" style="background:color-mix(in srgb,' + col + ' 15%,transparent);color:' + col + '">' + init + '</div>' +
-    '<div><div class="ch-name">' + esc(name) + '</div><div class="ch-sub">' + o.id + ' · ' + esc(o.route) + '</div></div>' +
+    '<div><div class="ch-name">' + esc(name) + '</div><div class="ch-sub">' + o.id + ' · заявка ' + esc(o.request_no || '—') + ' · ' + esc(o.route) + '</div></div>' +
     '<span class="chip ' + (ORD[o.status] ? ORD[o.status][1] : 'c-gray') + '" style="margin-left:auto">' + (ORD[o.status] ? ORD[o.status][0] : o.status) + '</span></div>' +
     '<div class="ch-msgs" id="msgs"></div>' +
     '<div class="ch-in"><button class="iconbtn" title="Прикрепить последний документ рейса" onclick="attachDoc()">' + I.clip + '</button>' +
@@ -278,6 +305,13 @@ async function refreshOrders() {
 async function approveDoc(id) { await api('/api/docs/' + id + '/approve', {method: 'POST'}).catch(e => alert(e.message)); await refreshDocs(); await refreshChat(true); await refreshOrders(); }
 async function rejectDoc(id) { await api('/api/docs/' + id + '/reject', {method: 'POST'}).catch(e => alert(e.message)); await refreshDocs(); await refreshChat(true); await refreshOrders(); }
 async function resendDoc(id) { await api('/api/docs/' + id + '/resend', {method: 'POST'}).catch(e => alert(e.message)); await refreshDocs(); await refreshChat(true); await refreshOrders(); }
+async function doExport() {
+  if (!active) return;
+  try {
+    await api('/api/orders/' + encodeURIComponent(active) + '/export', {method: 'POST'});
+    await refreshExports(); await refreshChat(true);
+  } catch (e) { alert(e.message); }
+}
 async function sendMsg() {
   const inp = $('chatIn');
   const v = inp.value.trim();
