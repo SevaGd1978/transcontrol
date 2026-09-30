@@ -77,3 +77,6 @@ translog/
 - `GET /api/docs/<id>/download`
 - `GET /api/msgs?order_id=&after_id=` — чат (поллинг), отметка прочтения
 - `POST /api/msgs` — отправить сообщение (`text` и/или `doc_id`)
+- `POST /api/orders/<order_id>/export` — собрать документы рейса в ZIP `ORD-XXXX_З-NNN.zip`, архив сохраняется в облачном хранилище `/data/exports`
+- `GET /api/exports` — список архивов (водитель — только свой рейс)
+- `GET /api/exports/<id>/download` — скачать архив
