@@ -40,30 +40,19 @@ python app.py
 
 ## Деплой на Amvera.ai
 
-1. Создайте репозиторий на GitHub и залейте код:
+**Уже развёрнуто:** https://translog-sevagd1978.amvera.io (регион msk0, тариф «Пробный»).
 
-   ```bash
-   git init
-   git add .
-   git commit -m "TransLog initial commit"
-   git branch -M main
-   git remote add origin https://github.com/<ваш-логин>/translog.git
-   git push -u origin main
-   ```
+Обновление кода:
 
-2. В [Amvera Cloud](https://cloud.amvera.ru/projects) нажмите «Создать» → «Приложение»,
-   выберите Python и подключите репозиторий GitHub (либо склонируйте выданный Amvera
-   репозиторий: `git remote add amvera https://git.amvera.ru/<пользователь>/translog && git push amvera main`).
+```bash
+git remote add amvera https://git.msk0.amvera.ru/sevagd1978/translog
+git push amvera main:master   # Amvera собирает ветку master
+```
 
-3. Файл `amvera.yml` уже лежит в корне — сборка и запуск пройдут автоматически
-   (gunicorn, порт 5000). Дождитесь статуса «Успешно развернуто».
-
-4. База SQLite и загруженные файлы автоматически сохраняются в постоянном хранилище `/data`
-   (на локальной машине — в папке проекта). Приложение определяет среду по переменной
-   окружения `AMVERA`.
-
-5. Рекомендуется задать переменную окружения `SECRET_KEY` (в настройках проекта Amvera)
-   со случайной строкой для подписи сессий.
+Amvera автоматически собирает проект по `amvera.yml` из корня (gunicorn, порт 5000).
+База SQLite и загруженные файлы сохраняются в постоянном хранилище `/data`
+(локально — в папке проекта). Среда определяется по переменной окружения `AMVERA`.
+`SECRET_KEY` задан через вкладку «Переменные окружения» в кабинете Amvera.
 
 ## Структура проекта
 

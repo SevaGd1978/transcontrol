@@ -20,13 +20,15 @@ Python 3.11 · Flask · SQLite (stdlib sqlite3) · gunicorn · ванильны�
 - dispatcher / dispatcher123 (диспетчер)
 - ivan, maria, oleg, dmitry / driver123 (водители, рейсы ORD-1042…1045)
 
-## Текущая проблема
-Нет — пуш на GitHub выполнен 2026-09-30 (ветка main → SevaGd1978/transcontrol).
-Локальный smoke-тест пройден: логин, рейсы, чат, healthz — работают.
+## Статус на 2026-09-30
+- GitHub: запушено (SevaGd1978/transcontrol, ветка main)
+- Amvera: РАЗВЁРНУТО — проект translog, регион msk0, тариф «Пробный»
+  URL: https://translog-sevagd1978.amvera.io
+  Git-remote Amvera: https://git.msk0.amvera.ru/sevagd1978/translog (ветка master — её собирает Amvera)
+  SECRET_KEY задан через env-переменные кабинета
+  Деплой обновлений: git push amvera main:master
+- Smoke-тесты (локально и в облаке): логин, рейсы, чат, healthz — работают
 
 ## Дальнейшие шаги
-1. Развернуть на Amvera Cloud: Создать → Приложение → Python → подключить репозиторий
-   https://github.com/SevaGd1978/transcontrol
-   (amvera.yml уже в корне; данные в /data; задать SECRET_KEY)
-2. Опционально: заменить поллинг на WebSocket (Flask-SocketIO), добавить PostgreSQL,
+1. Опционально: заменить поллинг на WebSocket (Flask-SocketIO), добавить PostgreSQL,
    уведомления по email/Telegram, загрузку фото с камеры телефона для водителей
