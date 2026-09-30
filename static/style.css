@@ -134,3 +134,16 @@ svg{display:block;flex:none}
 .send{width:36px;height:36px;border:0;border-radius:50%;background:var(--primary);color:var(--on-primary);
   display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none}
 .send:hover{opacity:.9}
+
+/* ---------- settings / TransTrade ---------- */
+.ch-tt{padding:8px 14px 0}
+.ch-tt .ibtn{width:100%;justify-content:center}
+#sett-grid,.sett-grid{display:grid;grid-template-columns:130px 1fr;gap:8px 12px;align-items:center;margin-bottom:12px}
+.sett-grid label{font-size:13px;color:var(--text2)}
+.sett-grid input{border:1px solid var(--border);border-radius:10px;padding:9px 11px;font-size:14px;
+  background:var(--surface);outline:none;min-width:0}
+.sett-grid input:focus{border-color:var(--text)}
+.sett-hint{font-size:12.5px;color:var(--text3);margin:0 0 12px;line-height:1.6}
+.sett-hint a{color:var(--blue)}
+.sett-ok{font-size:13px;color:var(--green);padding:8px 0 2px}
+.sett-err{font-size:13px;color:var(--red);padding:8px 0 2px}

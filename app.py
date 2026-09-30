@@ -1,7 +1,12 @@
 import os
 import re
+import json
 import sqlite3
 import zipfile
+import hashlib
+import secrets
+import urllib.request
+import urllib.parse
 from datetime import datetime
 
 from flask import Flask, jsonify, request, session, send_from_directory, abort
@@ -76,6 +81,10 @@ CREATE TABLE IF NOT EXISTS last_read (
   last_id INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (login, order_id)
 );
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL DEFAULT ''
+);
 """
 
 
@@ -147,6 +156,8 @@ def migrate(con):
     cols = [r[1] for r in con.execute("PRAGMA table_info(orders)").fetchall()]
     if "request_no" not in cols:
         con.execute("ALTER TABLE orders ADD COLUMN request_no TEXT DEFAULT ''")
+    if "tt_order_id" not in cols:
+        con.execute("ALTER TABLE orders ADD COLUMN tt_order_id TEXT DEFAULT ''")
     for row in con.execute("SELECT id FROM orders WHERE request_no='' OR request_no IS NULL").fetchall():
         m = re.search(r"(\d+)", row["id"])
         num = int(m.group(1)) - 264 if m else 600
@@ -282,7 +293,7 @@ def orders():
         result.append({
             "id": o["id"], "driver": o["driver_name"], "route": o["route"],
             "cargo": o["cargo"], "plate": o["plate"], "status": o["status"],
-            "request_no": o["request_no"],
+            "request_no": o["request_no"], "tt_order_id": o["tt_order_id"],
             "review_count": review, "unread": unread,
         })
     con.close()
@@ -495,6 +506,157 @@ def export_download(export_id):
         abort(404)
     require_order_access(u, e["order_id"])
     return send_from_directory(EXPORTS_DIR, e["stored_name"], as_attachment=True, download_name=e["filename"])
+
+
+# ---------- TransTrade API (tt-ok.ru) ----------
+
+def get_setting(key):
+    con = get_db()
+    row = con.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+    con.close()
+    return row["value"] if row else ""
+
+
+def set_setting(key, value):
+    con = get_db()
+    con.execute(
+        "INSERT INTO settings(key,value) VALUES(?,?)"
+        " ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        (key, value),
+    )
+    con.commit()
+    con.close()
+
+
+def tt_configured():
+    return bool(get_setting("tt_api_url") and get_setting("tt_api_key") and get_setting("tt_api_user_id"))
+
+
+def tt_request(method, data):
+    """Подписанный запрос к TransTrade API. Возвращает (ok, result_dict)."""
+    url = get_setting("tt_api_url")
+    key = get_setting("tt_api_key")
+    data.setdefault("api_user_id", int(get_setting("tt_api_user_id") or 0))
+    data_str = json.dumps(data, ensure_ascii=False)
+    rnd = secrets.token_hex(8)
+    sign = hashlib.md5(
+        (key + "###" + data_str + "###" + method + "###" + rnd + "###" + key).encode("utf-8")
+    ).hexdigest()
+    body = urllib.parse.urlencode(
+        {"data": data_str, "method": method, "random": rnd, "signature": sign}
+    ).encode("utf-8")
+    req = urllib.request.Request(url, data=body, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+    except Exception as e:
+        return False, {"error": f"Ошибка соединения с API: {e}"}
+    if payload.get("error_code"):
+        return False, {"error": payload.get("error_text") or "Ошибка API"}
+    return True, payload
+
+
+@app.get("/api/settings/tt")
+def tt_settings_get():
+    u = require_auth()
+    if u["role"] != "dispatcher":
+        abort(403)
+    key = get_setting("tt_api_key")
+    return jsonify({
+        "url": get_setting("tt_api_url"),
+        "api_user_id": get_setting("tt_api_user_id"),
+        "has_key": bool(key),
+        "api_key_masked": (key[:4] + "…" + key[-4:]) if len(key) > 8 else "",
+    })
+
+
+@app.post("/api/settings/tt")
+def tt_settings_save():
+    u = require_auth()
+    if u["role"] != "dispatcher":
+        abort(403)
+    data = request.get_json(force=True, silent=True) or {}
+    url = (data.get("url") or "").strip()
+    key = (data.get("api_key") or "").strip()
+    uid = str(data.get("api_user_id") or "").strip()
+    if url:
+        if not re.match(r"^https?://", url):
+            return jsonify({"error": "URL должен начинаться с http:// или https://"}), 400
+        set_setting("tt_api_url", url.rstrip("/"))
+    if key:
+        set_setting("tt_api_key", key)
+    if uid:
+        if not uid.isdigit():
+            return jsonify({"error": "api_user_id — целое положительное число"}), 400
+        set_setting("tt_api_user_id", uid)
+    return jsonify({"ok": True, "configured": tt_configured()})
+
+
+@app.post("/api/tt/test")
+def tt_test():
+    u = require_auth()
+    if u["role"] != "dispatcher":
+        abort(403)
+    if not tt_configured():
+        return jsonify({"error": "API не настроен: заполните URL, KEY и api_user_id"}), 400
+    ok, res = tt_request("GetDrivers", {})
+    if not ok:
+        return jsonify({"ok": False, "error": res["error"]}), 502
+    drivers = res.get("data") or []
+    names = [d.get("Driver", "") for d in drivers[:3] if isinstance(d, dict)]
+    return jsonify({
+        "ok": True,
+        "detail": f"Связь установлена. Водителей в TransTrade: {len(drivers)}"
+                  + (": " + ", ".join(names) if names else ""),
+    })
+
+
+@app.post("/api/orders/<order_id>/push_tt")
+def push_order_tt(order_id):
+    u = require_auth()
+    if u["role"] != "dispatcher":
+        abort(403)
+    if not tt_configured():
+        return jsonify({"error": "TransTrade API не настроен (Настройки → TransTrade API)"}), 400
+    con = get_db()
+    o = con.execute("SELECT * FROM orders WHERE id=?", (order_id,)).fetchone()
+    if not o:
+        con.close()
+        abort(404)
+    parts = [p.strip() for p in o["route"].split("→")]
+    load = parts[0] if parts else ""
+    unload = parts[1] if len(parts) > 1 else ""
+    data = {
+        "Client": o["driver_name"],
+        "ContactFace": o["driver_name"],
+        "AutoType": "-",
+        "Load": load,
+        "Unload": unload,
+        "User": u["name"],
+        "Cargo": o["cargo"],
+        "Comment": f"Рейс {o['id']} (заявка {o['request_no']}) из TransLog",
+        "Firm": "-",
+        "Transport": o["plate"],
+        "Driver": o["driver_name"],
+        "OrderNum": o["id"],
+        "ClientOrderNum": o["request_no"],
+    }
+    if o["tt_order_id"] and str(o["tt_order_id"]).isdigit():
+        method, data = "EditOrder", dict(data, OrderId=int(o["tt_order_id"]))
+    else:
+        method = "CreateOrder"
+    ok, res = tt_request(method, data)
+    if not ok:
+        con.close()
+        return jsonify({"error": res["error"]}), 502
+    tt_id = str((res.get("data") or {}).get("order_id") or o["tt_order_id"] or "")
+    if tt_id:
+        con.execute("UPDATE orders SET tt_order_id=? WHERE id=?", (tt_id, order_id))
+    verb = "обновлён" if method == "EditOrder" else "создан"
+    add_sys_msg(con, order_id, f"Заказ {verb} в TransTrade" + (f" (ID {tt_id})" if tt_id else ""))
+    con.commit()
+    con.close()
+    return jsonify({"ok": True, "method": method, "tt_order_id": tt_id})
 
 
 # ---------- chat ----------

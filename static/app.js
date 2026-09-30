@@ -23,6 +23,7 @@ let ME = null;
 let orders = [];
 let docs = [];
 let exports_ = [];
+let settingsOpen = false;
 let active = null;
 let filter = 'all';
 let q = '';
@@ -57,6 +58,7 @@ function showLogin() {
 function showApp() {
   $('login-view').classList.add('hidden');
   $('app-view').classList.remove('hidden');
+  if (ME.role === 'dispatcher') $('settings-btn').style.display = '';
   active = ME.role === 'driver' ? ME.order_id : (orders[0] && orders[0].id);
   refreshAll();
   startTimers();
@@ -186,6 +188,19 @@ function docRow(d) {
 
 function renderCenter() {
   let html = '';
+  if (settingsOpen && ME.role === 'dispatcher') {
+    html += '<div class="panel" id="settings-panel"><div class="panel-t">Интеграция TransTrade API</div>' +
+      '<p class="sett-hint">Документация: <a href="https://tt-ok.ru/data/api_doc/" target="_blank" rel="noopener">tt-ok.ru/data/api_doc</a>. ' +
+      'API KEY и api_user_id высылаются почтой после подключения модуля.</p>' +
+      '<div class="sett-grid">' +
+      '<label>API URL</label><input id="tt-url" placeholder="https://tt-ok.ru/data/api">' +
+      '<label>API KEY</label><input id="tt-key" placeholder="••••••••" autocomplete="off">' +
+      '<label>api_user_id</label><input id="tt-uid" placeholder="1">' +
+      '</div>' +
+      '<div class="uprow"><button class="btn-p" onclick="saveTTSettings()">Сохранить</button>' +
+      '<button class="ibtn" onclick="testTT()">Проверить подключение</button></div>' +
+      '<div id="tt-status"></div></div>';
+  }
   if (ME.role === 'driver') {
     html += '<div class="panel"><div class="panel-t">' + I.up + ' Отправить документ</div>' +
       '<div class="uprow"><select id="upType"><option>CMR</option><option>ТТН</option><option>Путевой лист</option><option>Доверенность</option><option>Счёт-фактура</option><option>Другое</option></select></div>' +
@@ -204,6 +219,7 @@ function renderCenter() {
   html += '<div class="panel"><div class="panel-t">' + I.doc + ' Архивы документов (ZIP)</div><div id="exp-box"></div></div>';
   $('center').innerHTML = html;
   renderExports();
+  if (settingsOpen && ME.role === 'dispatcher') loadTTSettings();
 }
 
 function renderExports() {
@@ -252,6 +268,8 @@ function renderChat() {
     '<div class="av" style="background:color-mix(in srgb,' + col + ' 15%,transparent);color:' + col + '">' + init + '</div>' +
     '<div><div class="ch-name">' + esc(name) + '</div><div class="ch-sub">' + o.id + ' · заявка ' + esc(o.request_no || '—') + ' · ' + esc(o.route) + '</div></div>' +
     '<span class="chip ' + (ORD[o.status] ? ORD[o.status][1] : 'c-gray') + '" style="margin-left:auto">' + (ORD[o.status] ? ORD[o.status][0] : o.status) + '</span></div>' +
+    (ME.role === 'dispatcher' ? '<div class="ch-tt"><button class="ibtn" onclick="pushTT()">' + I.up + ' Отправить заказ в TransTrade' +
+      (o.tt_order_id ? ' (ID ' + esc(o.tt_order_id) + ' — обновит)' : '') + '</button></div>' : '') +
     '<div class="ch-msgs" id="msgs"></div>' +
     '<div class="ch-in"><button class="iconbtn" title="Прикрепить последний документ рейса" onclick="attachDoc()">' + I.clip + '</button>' +
     '<input id="chatIn" placeholder="Сообщение…" onkeydown="if(event.key===\'Enter\')sendMsg()">' +
@@ -310,6 +328,59 @@ async function doExport() {
   try {
     await api('/api/orders/' + encodeURIComponent(active) + '/export', {method: 'POST'});
     await refreshExports(); await refreshChat(true);
+  } catch (e) { alert(e.message); }
+}
+
+/* ---------- TransTrade API ---------- */
+function toggleSettings() {
+  settingsOpen = !settingsOpen;
+  renderCenter();
+}
+async function loadTTSettings() {
+  try {
+    const s = await api('/api/settings/tt');
+    $('tt-url').value = s.url || 'https://tt-ok.ru/data/api';
+    $('tt-uid').value = s.api_user_id || '';
+    $('tt-key').placeholder = s.has_key ? ('сохранён: ' + s.api_key_masked) : '••••••••';
+  } catch (e) { /* ignore */ }
+}
+async function saveTTSettings() {
+  const box = $('tt-status');
+  try {
+    const r = await api('/api/settings/tt', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        url: $('tt-url').value.trim(),
+        api_key: $('tt-key').value.trim(),
+        api_user_id: $('tt-uid').value.trim()
+      })});
+    box.innerHTML = '<div class="sett-ok">Сохранено. API ' + (r.configured ? 'настроен полностью' : 'заполнен не полностью') + '.</div>';
+    $('tt-key').value = '';
+    loadTTSettings();
+  } catch (e) {
+    box.innerHTML = '<div class="sett-err">' + esc(e.message) + '</div>';
+  }
+}
+async function testTT() {
+  const box = $('tt-status');
+  box.innerHTML = '<div class="sett-hint">Проверяю соединение…</div>';
+  try {
+    const r = await api('/api/tt/test', {method: 'POST'});
+    box.innerHTML = '<div class="sett-ok">' + esc(r.detail) + '</div>';
+  } catch (e) {
+    box.innerHTML = '<div class="sett-err">' + esc(e.message) + '</div>';
+  }
+}
+async function pushTT() {
+  if (!active) return;
+  const o = orders.find(x => x.id === active);
+  if (!o) return;
+  if (!confirm('Отправить заказ ' + o.id + ' (заявка ' + (o.request_no || '—') + ') в TransTrade?' +
+      (o.tt_order_id ? '\nЗаказ уже привязан (ID ' + o.tt_order_id + ') — будет выполнено EditOrder.' : ''))) return;
+  try {
+    const r = await api('/api/orders/' + encodeURIComponent(active) + '/push_tt', {method: 'POST'});
+    alert(r.method === 'EditOrder' ? 'Заказ обновлён в TransTrade' : 'Заказ создан в TransTrade' +
+      (r.tt_order_id ? ' (ID ' + r.tt_order_id + ')' : ''));
+    await refreshOrders(); await refreshChat(true);
   } catch (e) { alert(e.message); }
 }
 async function sendMsg() {
