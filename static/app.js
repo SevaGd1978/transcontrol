@@ -179,8 +179,9 @@ function docRow(d) {
   if (d.status === 'rejected' && (ME.role === 'driver' || d.uploader === ME.name)) {
     act = '<div class="dact"><button class="ibtn" onclick="resendDoc(' + d.id + ')">' + I.up + ' Отправить повторно</button></div>';
   }
+  const docNameJs = JSON.stringify(d.name).replace(/'/g, '&#39;');
   return '<div class="doc"><div class="dic">' + (d.status === 'approved' ? I.docok : I.doc) + '</div>' +
-    '<div class="dmain"><div class="dname">' + esc(d.name) + '<span class="chip c-gray">' + esc(d.type) + '</span></div>' +
+    '<div class="dmain"><div class="dname"><span class="dview" onclick=\'openDocView(' + d.id + ',' + docNameJs + ')\' title="Открыть">' + esc(d.name) + '</span><span class="chip c-gray">' + esc(d.type) + '</span></div>' +
     '<div class="dmeta">' + d.order_id + ' · ' + esc(o ? o.driver : d.uploader) + ' · ' + d.size + ' · ' + d.time + (d.comment ? ' · ' + esc(d.comment) : '') + megaLink(d.mega_url) + '</div>' + act + '</div>' +
     '<div class="dright"><span class="chip ' + st[1] + '">' + st[0] + '</span>' +
     '<a class="ibtn" href="/api/docs/' + d.id + '/download">' + I.dl + ' Скачать</a></div></div>';
