@@ -521,6 +521,28 @@ def export_download(export_id):
     return send_from_directory(EXPORTS_DIR, e["stored_name"], as_attachment=True, download_name=e["filename"])
 
 
+@app.get("/api/exports/<int:export_id>/contents")
+def export_contents(export_id):
+    """Список файлов внутри ZIP-архива (для просмотра без скачивания)."""
+    u = require_auth()
+    con = get_db()
+    e = con.execute("SELECT * FROM exports WHERE id=?", (export_id,)).fetchone()
+    con.close()
+    if not e:
+        abort(404)
+    require_order_access(u, e["order_id"])
+    path = os.path.join(EXPORTS_DIR, e["stored_name"])
+    if not os.path.exists(path):
+        return jsonify({"error": "Архив не найден на сервере"}), 404
+    with zipfile.ZipFile(path) as z:
+        names = z.namelist()
+    return jsonify({
+        "filename": e["filename"],
+        "files": names,
+        "count": len(names),
+    })
+
+
 # ---------- MEGA storage ----------
 
 _MEGA_CLIENT = None

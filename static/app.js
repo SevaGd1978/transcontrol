@@ -244,12 +244,13 @@ function renderExports() {
       ' Сформировать ZIP по рейсу ' + esc(o.id) + ' (заявка ' + esc(o.request_no || '—') + ', документов: ' + n + ')</button></div>';
   }
   const list = ME.role === 'driver' ? exports_ : (active ? exports_.filter(e => e.order_id === active) : exports_);
-  html += list.length ? list.map(e =>
-    '<div class="doc"><div class="dic">' + I.doc + '</div>' +
-    '<div class="dmain"><div class="dname">' + esc(e.filename) + '</div>' +
+  html += list.length ? list.map(e => {
+    const zipNameJs = JSON.stringify(e.filename).replace(/'/g, '&#39;');
+    return '<div class="doc"><div class="dic">' + I.doc + '</div>' +
+    '<div class="dmain"><div class="dname"><span class="dview" onclick=\'openExportView(' + e.id + ',' + zipNameJs + ')\' title="Состав архива">' + esc(e.filename) + '</span></div>' +
     '<div class="dmeta">' + e.order_id + ' · заявка ' + esc(e.request_no || '—') + ' · файлов: ' + e.doc_count + ' · ' + e.size + ' · ' + e.time + ' · ' + esc(e.created_by) + megaLink(e.mega_url) + '</div></div>' +
-    '<div class="dright"><a class="ibtn" href="/api/exports/' + e.id + '/download">' + I.dl + ' Скачать</a></div></div>'
-  ).join('') : '<div class="empty">Архивов пока нет</div>';
+    '<div class="dright"><a class="ibtn" href="/api/exports/' + e.id + '/download">' + I.dl + ' Скачать</a></div></div>';
+  }).join('') : '<div class="empty">Архивов пока нет</div>';
   box.innerHTML = html;
 }
 
@@ -330,6 +331,22 @@ function closeDocView() {
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && !$('docview').classList.contains('hidden')) closeDocView();
 });
+
+/* ---------- просмотр содержимого ZIP-архива ---------- */
+function openExportView(id, name) {
+  fetch('/api/exports/' + id + '/contents')
+    .then(r => r.ok ? r.json() : Promise.reject(new Error(r.status)))
+    .then(c => {
+      $('docview-name').textContent = c.filename || name;
+      $('docview-dl').href = '/api/exports/' + id + '/download';
+      $('docview-body').innerHTML = '<div class="zlist"><div class="zlist-t">Файлов в архиве: ' +
+        (c.count != null ? c.count : c.files.length) + '</div>' +
+        (c.files || []).map(f => '<div class="zlist-i">' + I.doc + esc(f) + '</div>').join('') +
+        '</div>';
+      $('docview').classList.remove('hidden');
+    })
+    .catch(() => { window.location.href = '/api/exports/' + id + '/download'; });
+}
 
 /* ---------- actions ---------- */
 function selectOrder(id) { active = id; lastMsgId = 0; refreshDocs(); refreshChat(true).then(renderSide); }
