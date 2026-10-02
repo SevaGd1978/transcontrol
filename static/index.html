@@ -56,6 +56,18 @@
     </div>
   </div>
 
+  <!-- Просмотр документа из чата -->
+  <div id="docview" class="docview hidden" onclick="if(event.target===this)closeDocView()">
+    <div class="docview-head">
+      <span id="docview-name" class="docview-name"></span>
+      <div class="docview-actions">
+        <a id="docview-dl" class="ibtn" href="#" download>Скачать</a>
+        <button class="ibtn" onclick="closeDocView()">✕</button>
+      </div>
+    </div>
+    <div class="docview-body" id="docview-body"></div>
+  </div>
+
   <script src="/static/app.js"></script>
 </body>
 </html>

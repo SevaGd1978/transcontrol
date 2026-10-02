@@ -257,9 +257,9 @@ function msgHtml(m) {
   const mine = m.who === ME.role;
   let body;
   if (m.doc) {
-    body = '<div class="bdoc">' + (m.doc.status === 'approved' ? I.docok : I.doc) +
+    body = '<div class="bdoc" onclick="openDocView(' + m.doc.id + ',' + JSON.stringify(m.doc.name) + ')">' + (m.doc.status === 'approved' ? I.docok : I.doc) +
       '<div><div class="bdname">' + esc(m.doc.name) + '</div><div class="bdmeta">' + esc(m.doc.type) + ' · ' + m.doc.size +
-      ' · <a href="/api/docs/' + m.doc.id + '/download">скачать</a></div></div></div>';
+      ' · <a href="/api/docs/' + m.doc.id + '/download" onclick="event.stopPropagation()">скачать</a></div></div></div>';
   } else {
     body = esc(m.text);
   }
@@ -304,6 +304,30 @@ function appendMsgs(msgs) {
   const o = orders.find(x => x.id === active);
   if (o) { o.unread = 0; renderStats(); renderSide(); }
 }
+
+/* ---------- просмотр документа из чата ---------- */
+function openDocView(id, name) {
+  const url = '/api/docs/' + id + '/download';
+  const ext = (name.split('.').pop() || '').toLowerCase();
+  if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)) {
+    $('docview-body').innerHTML = '<img src="' + url + '" alt="">';
+  } else if (ext === 'pdf') {
+    $('docview-body').innerHTML = '<embed src="' + url + '" type="application/pdf">';
+  } else {
+    window.location.href = url; // неизвестный тип — просто скачиваем
+    return;
+  }
+  $('docview-name').textContent = name;
+  $('docview-dl').href = url;
+  $('docview').classList.remove('hidden');
+}
+function closeDocView() {
+  $('docview').classList.add('hidden');
+  $('docview-body').innerHTML = '';
+}
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && !$('docview').classList.contains('hidden')) closeDocView();
+});
 
 /* ---------- actions ---------- */
 function selectOrder(id) { active = id; lastMsgId = 0; refreshDocs(); refreshChat(true).then(renderSide); }

@@ -121,7 +121,7 @@ svg{display:block;flex:none}
 .b.me{background:var(--primary);color:var(--on-primary)}
 .bt{display:block;font-size:11px;opacity:.6;margin-top:2px}
 .msys{text-align:center;font-size:12px;color:var(--text3)}
-.bdoc{display:flex;align-items:center;gap:8px}
+.bdoc{display:flex;align-items:center;gap:8px;cursor:pointer}
 .bdname{font-size:13px;font-weight:600}
 .bdmeta{font-size:11px;opacity:.75;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .bdmeta a{color:inherit}
@@ -147,3 +147,17 @@ svg{display:block;flex:none}
 .sett-hint a{color:var(--blue)}
 .sett-ok{font-size:13px;color:var(--green);padding:8px 0 2px}
 .sett-err{font-size:13px;color:var(--red);padding:8px 0 2px}
+
+/* ---------- просмотр документа ---------- */
+.docview{position:fixed;inset:0;z-index:100;background:rgba(15,18,22,.82);
+  display:flex;flex-direction:column}
+.docview-head{display:flex;align-items:center;gap:10px;padding:10px 14px;color:#fff}
+.docview-name{flex:1;font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap}
+.docview-actions{display:flex;gap:8px;flex:none}
+.docview-actions .ibtn{color:#fff;text-decoration:none}
+.docview-body{flex:1;display:flex;align-items:center;justify-content:center;
+  padding:8px 14px 14px;min-height:0}
+.docview-body img{max-width:100%;max-height:100%;object-fit:contain;border-radius:8px;
+  background:#fff}
+.docview-body embed{width:100%;height:100%;border-radius:8px;background:#fff}
