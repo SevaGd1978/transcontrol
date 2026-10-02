@@ -257,7 +257,8 @@ function msgHtml(m) {
   const mine = m.who === ME.role;
   let body;
   if (m.doc) {
-    body = '<div class="bdoc" onclick="openDocView(' + m.doc.id + ',' + JSON.stringify(m.doc.name) + ')">' + (m.doc.status === 'approved' ? I.docok : I.doc) +
+    const docNameJs = JSON.stringify(m.doc.name).replace(/'/g, '&#39;');
+    body = '<div class="bdoc" onclick=\'openDocView(' + m.doc.id + ',' + docNameJs + ')\'>' + (m.doc.status === 'approved' ? I.docok : I.doc) +
       '<div><div class="bdname">' + esc(m.doc.name) + '</div><div class="bdmeta">' + esc(m.doc.type) + ' · ' + m.doc.size +
       ' · <a href="/api/docs/' + m.doc.id + '/download" onclick="event.stopPropagation()">скачать</a></div></div></div>';
   } else {
